@@ -1,0 +1,123 @@
+# Sonar API
+# Sonar REST api first version
+# 
+
+###
+
+# Send a message to the world
+POST {{host}}/message
+Content-Type: application/json
+
+{
+    "body": {
+        "id": 0,
+        "sender": 0,
+        "text": "body.text"
+    }
+}
+
+###
+
+# Edit an existing message
+PUT {{host}}/message
+Content-Type: application/json
+
+{
+    "body": {
+        "id": 0,
+        "sender": 0,
+        "text": "body.text"
+    }
+}
+
+###
+
+# Finds messages to show
+# 
+# Fetch messages by location and timestamp
+GET {{host}}/message/fetch
+
+###
+
+# Create user
+# 
+# This can only be done by the logged in user.
+POST {{host}}/user
+Content-Type: application/json
+
+{
+    "body": {
+        "id": 0,
+        "username": "body.username",
+        "firstName": "body.firstName",
+        "lastName": "body.lastName",
+        "email": "body.email",
+        "password": "body.password",
+        "phone": "body.phone",
+        "userStatus": 0
+    }
+}
+
+###
+
+# Creates list of users with given input array
+POST {{host}}/user/createWithArray
+Content-Type: application/json
+
+{
+    "body": []
+}
+
+###
+
+# Creates list of users with given input array
+POST {{host}}/user/createWithList
+Content-Type: application/json
+
+{
+    "body": []
+}
+
+###
+
+# Logs user into the system
+GET {{host}}/user/login
+
+###
+
+# Logs out current logged in user session
+GET {{host}}/user/logout
+
+###
+
+# Get user by user name
+GET {{host}}/user/{{param_username}}
+
+###
+
+# Updated user
+# 
+# This can only be done by the logged in user.
+PUT {{host}}/user/{{param_username}}
+Content-Type: application/json
+
+{
+    "body": {
+        "id": 0,
+        "username": "body.username",
+        "firstName": "body.firstName",
+        "lastName": "body.lastName",
+        "email": "body.email",
+        "password": "body.password",
+        "phone": "body.phone",
+        "userStatus": 0
+    }
+}
+
+###
+
+# Delete user
+# 
+# This can only be done by the logged in user.
+DELETE {{host}}/user/{{param_username}}
+
