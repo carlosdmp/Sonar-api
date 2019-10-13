@@ -1,5 +1,11 @@
-package com.example
+package cdmp.app
 
+import cdmp.app.datatype.safeCall
+import cdmp.app.db.Database
+import cdmp.app.model.User
+import cdmp.app.model.UserLogin
+import cdmp.app.swagger.experimental.HttpException
+import cdmp.app.swagger.experimental.getBodyParam
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.fasterxml.jackson.databind.SerializationFeature
@@ -14,19 +20,24 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.apache.Apache
 import io.ktor.features.ContentNegotiation
 import io.ktor.features.StatusPages
+import io.ktor.gson.gson
 import io.ktor.html.respondHtml
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.jackson.jackson
+import io.ktor.request.receive
+import io.ktor.request.receiveOrNull
+import io.ktor.request.receiveText
 import io.ktor.response.respond
 import io.ktor.response.respondText
 import io.ktor.routing.get
+import io.ktor.routing.post
 import io.ktor.routing.routing
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
-import io.ktor.swagger.experimental.HttpException
 import kotlinx.css.*
 import kotlinx.html.*
+import java.text.DateFormat
 
 fun main(args: Array<String>) {
     val server = embeddedServer(Netty, 8888) {
@@ -35,8 +46,6 @@ fun main(args: Array<String>) {
     server.start(wait = true)
 }
 
-
-
 fun Application.module(testing: Boolean = false) {
     val myjwt = MyJWT(secret = "my-super-secret-for-jwt")
 
@@ -44,8 +53,10 @@ fun Application.module(testing: Boolean = false) {
     }
 
     install(ContentNegotiation) {
-        jackson {
-            enable(SerializationFeature.INDENT_OUTPUT)
+
+        gson {
+            setDateFormat(DateFormat.LONG)
+            setPrettyPrinting()
         }
     }
 
@@ -75,6 +86,24 @@ fun Application.module(testing: Boolean = false) {
     }
 
     routing {
+
+        post("/user") {
+            safeCall {
+                checkNotNull(call.receiveOrNull(UserLogin::class))
+            }.fold({
+                call.respond(HttpStatusCode.BadRequest)
+            }, {
+                safeCall {  Database.logUser(it.token) }.fold(
+                    {
+                        call.respond(HttpStatusCode.OK, body)
+                    },{
+                        call.respond(HttpStatusCode.InternalServerError, it.whenLeft { it.message })
+                    }
+                )
+
+            })
+        }
+
         get("/") {
             call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
         }
@@ -117,16 +146,20 @@ fun Application.module(testing: Boolean = false) {
             exception<HttpException> { cause ->
                 call.respond(cause.code, cause.description)
             }
+            exception<Throwable> { cause ->
+                call.respond(cause.message ?: "unknown error")
+
+            }
         }
 
         get("/json/jackson") {
             call.respond(mapOf("hello" to "world"))
         }
-
-        SonarAPIServer(myjwt).apply {
-            registerMessage()
-            registerUser()
-        }
+//
+//        SonarAPIServer(myjwt).apply {
+//            messageModule()
+//            userModule()
+//        }
     }
 }
 

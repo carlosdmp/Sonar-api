@@ -1,11 +1,9 @@
 package com.example
 
-import java.util.*
 import io.ktor.config.*
 import io.ktor.http.*
-import io.ktor.request.*
 import io.ktor.server.testing.*
-import io.ktor.swagger.experimental.*
+import cdmp.app.experimental.*
 import kotlin.test.*
 
 class SwaggerRoutesTest {

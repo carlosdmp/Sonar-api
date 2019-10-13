@@ -1,5 +1,6 @@
 package com.example
 
+import cdmp.app.model.User
 import io.ktor.client.*
 import io.ktor.client.request.*
 

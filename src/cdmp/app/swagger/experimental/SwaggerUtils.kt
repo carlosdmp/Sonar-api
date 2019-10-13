@@ -1,4 +1,4 @@
-package io.ktor.swagger.experimental
+package cdmp.app.swagger.experimental
 
 import com.fasterxml.jackson.module.kotlin.*
 import kotlin.coroutines.*
