@@ -28,64 +28,17 @@ import io.ktor.swagger.experimental.HttpException
 import kotlinx.css.*
 import kotlinx.html.*
 
-fun main(args: Array<String>){
-    val server = embeddedServer(Netty, 8888){
-        routing {
-            get("/") {
-                call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
-            }
-
-            get("/html-dsl") {
-                call.respondHtml {
-                    body {
-                        h1 { +"HTML" }
-                        ul {
-                            for (n in 1..10) {
-                                li { +"$n" }
-                            }
-                        }
-                    }
-                }
-            }
-
-            get("/styles.css") {
-                call.respondCss {
-                    body {
-                        backgroundColor = Color.red
-                    }
-                    p {
-                        fontSize = 2.em
-                    }
-                    rule("p.myclass") {
-                        color = Color.blue
-                    }
-                }
-            }
-
-            install(StatusPages) {
-                exception<AuthenticationException> { cause ->
-                    call.respond(HttpStatusCode.Unauthorized)
-                }
-                exception<AuthorizationException> { cause ->
-                    call.respond(HttpStatusCode.Forbidden)
-                }
-                exception<HttpException> {  cause ->
-                    call.respond(cause.code, cause.description)
-                }
-            }
-
-            get("/json/jackson") {
-                call.respond(mapOf("hello" to "world"))
-            }
-        }
+fun main(args: Array<String>) {
+    val server = embeddedServer(Netty, 8888) {
+        module(false)
     }
     server.start(wait = true)
 }
 
-@Suppress("unused") // Referenced in application.conf
-@kotlin.jvm.JvmOverloads
+
+
 fun Application.module(testing: Boolean = false) {
-    val myjwt = MyJWT(secret = environment.config.property("jwt.secret").getString())
+    val myjwt = MyJWT(secret = "my-super-secret-for-jwt")
 
     val client = HttpClient(Apache) {
     }
@@ -101,7 +54,7 @@ fun Application.module(testing: Boolean = false) {
         // @TODO: Please, edit the application.conf # jwt.secret property and provide a secure random value for it
         // ---------------
         // null
-        jwt("petstore_auth") {
+        jwt("sonar_auth") {
             authSchemes("Bearer", "Token")
             verifier(myjwt.verifier)
             validate {
@@ -161,7 +114,7 @@ fun Application.module(testing: Boolean = false) {
                 call.respond(HttpStatusCode.Forbidden)
             }
 
-            exception<HttpException> {  cause ->
+            exception<HttpException> { cause ->
                 call.respond(cause.code, cause.description)
             }
         }
