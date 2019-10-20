@@ -50,4 +50,5 @@ dependencies {
     compile 'org.litote.kmongo:kmongo:3.11.0'
     compile 'org.litote.kmongo:kmongo-coroutine:3.11.0'
     compile "io.ktor:ktor-gson:$ktor_version"
+    implementation "io.ktor:ktor-websockets:$ktor_version"
 }

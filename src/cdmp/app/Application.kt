@@ -2,17 +2,14 @@ package cdmp.app
 
 import cdmp.app.datatype.safeCall
 import cdmp.app.db.Database
-import cdmp.app.model.User
+import cdmp.app.model.Message
+import cdmp.app.model.UserLocationPair
 import cdmp.app.model.UserLogin
 import cdmp.app.swagger.experimental.HttpException
-import cdmp.app.swagger.experimental.getBodyParam
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.fasterxml.jackson.databind.SerializationFeature
-import io.ktor.application.Application
-import io.ktor.application.ApplicationCall
-import io.ktor.application.call
-import io.ktor.application.install
+import com.google.gson.Gson
+import io.ktor.application.*
 import io.ktor.auth.Authentication
 import io.ktor.auth.UserIdPrincipal
 import io.ktor.auth.jwt.jwt
@@ -24,10 +21,11 @@ import io.ktor.gson.gson
 import io.ktor.html.respondHtml
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.jackson.jackson
-import io.ktor.request.receive
+import io.ktor.http.cio.websocket.CloseReason
+import io.ktor.http.cio.websocket.Frame
+import io.ktor.http.cio.websocket.close
+import io.ktor.http.cio.websocket.readText
 import io.ktor.request.receiveOrNull
-import io.ktor.request.receiveText
 import io.ktor.response.respond
 import io.ktor.response.respondText
 import io.ktor.routing.get
@@ -35,9 +33,17 @@ import io.ktor.routing.post
 import io.ktor.routing.routing
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.sessions.*
+import io.ktor.util.generateNonce
+import io.ktor.websocket.DefaultWebSocketServerSession
+import io.ktor.websocket.WebSockets
+import io.ktor.websocket.webSocket
 import kotlinx.css.*
 import kotlinx.html.*
+import java.lang.Exception
 import java.text.DateFormat
+
+private val server = ChatServer()
 
 fun main(args: Array<String>) {
     val server = embeddedServer(Netty, 8888) {
@@ -47,6 +53,7 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module(testing: Boolean = false) {
+    val currentUsers = mutableMapOf<UserLocationPair, DefaultWebSocketServerSession>()
     val myjwt = MyJWT(secret = "my-super-secret-for-jwt")
 
     val client = HttpClient(Apache) {
@@ -85,6 +92,17 @@ fun Application.module(testing: Boolean = false) {
         }
     }
 
+    install(WebSockets)
+
+    install(Sessions) {
+        cookie<ChatSession>("SESSION")
+    }
+
+    intercept(ApplicationCallPipeline.Features) {
+        if (call.sessions.get<ChatSession>() == null) {
+            call.sessions.set(ChatSession(generateNonce()))
+        }
+    }
     routing {
 
         post("/user") {
@@ -93,16 +111,51 @@ fun Application.module(testing: Boolean = false) {
             }.fold({
                 call.respond(HttpStatusCode.BadRequest)
             }, {
-                safeCall {  Database.logUser(it.token) }.fold(
+                safeCall { Database.logUser(it.token) }.fold(
                     {
+                        call.respond(HttpStatusCode.InternalServerError, it.message ?: "Unknown error")
+                    }, {
                         call.respond(HttpStatusCode.OK, body)
-                    },{
-                        call.respond(HttpStatusCode.InternalServerError, it.whenLeft { it.message })
                     }
                 )
-
             })
         }
+
+        webSocket("/channel-session") {
+            val session = call.sessions.get<ChatSession>()
+            if (session == null) {
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "No session"))
+                return@webSocket
+            }
+
+            // We notify that a member joined by calling the server handler [memberJoin]
+            // This allows to associate the session id to a specific WebSocket connection.
+            server.memberJoin(session.id, this)
+
+            try {
+                // We starts receiving messages (frames).
+                // Since this is a coroutine. This coroutine is suspended until receiving frames.
+                // Once the connection is closed, this consumeEach will finish and the code will continue.
+                for (frame in incoming) {
+                    // Frames can be [Text], [Binary], [Ping], [Pong], [Close].
+                    // We are only interested in textual messages, so we filter it.
+                    if (frame is Frame.Text) {
+                        // Now it is time to process the text sent from the user.
+                        // At this point we have context about this connection, the session, the text and the server.
+                        // So we have everything we need.
+                        receivedMessage(session.id, frame.readText())
+                    }
+                }
+            } catch (e: Exception) {
+                print(e)
+            } finally {
+                // Either if there was an error, of it the connection was closed gracefully.
+                // We notify the server that the member left.
+                server.memberLeft(session.id)
+            }
+        }
+
+
 
         get("/") {
             call.respondText("HELLO WORLD!", contentType = ContentType.Text.Plain)
@@ -163,6 +216,49 @@ fun Application.module(testing: Boolean = false) {
     }
 }
 
+/**
+ * We received a message. Let's process it.
+ */
+private suspend fun receivedMessage(id: String, rawFrameText: String) {
+    // We are going to handle commands (text starting with '/') and normal messages
+    val frameText = rawFrameText.trim()
+    when {
+        // The frameText `who` responds the user about all the member names connected to the user.
+        frameText.startsWith("/who") -> server.who(id)
+        // The frameText `user` allows the user to set its name.
+        frameText.startsWith("/user") -> {
+            // We strip the frameText part to get the rest of the parameters.
+            // In this case the only parameter is the user's newName.
+            val newName = frameText.removePrefix("/user").trim()
+            // We verify that it is a valid name (in terms of length) to prevent abusing
+            when {
+                newName.isEmpty() -> server.sendTo(id, "server::help", "/user [newName]")
+                newName.length > 50 -> server.sendTo(
+                    id,
+                    "server::help",
+                    "new name is too long: 50 characters limit"
+                )
+                else -> server.memberRenamed(id, newName)
+            }
+        }
+        // The frameText 'help' allows users to get a list of available commands.
+        frameText.startsWith("/help") -> server.help(id)
+        // If no commands matched at this point, we notify about it.
+        frameText.startsWith("/") -> server.sendTo(
+            id,
+            "server::help",
+            "Unknown frameText ${frameText.takeWhile { !it.isWhitespace() }}"
+        )
+        else -> {
+            val message = Gson().fromJson(frameText, Message::class.java)
+            val userLocation = UserLocationPair(message.userId, message.geoPos.toString())
+            if (message.message.isNotEmpty()) {
+                server.message(userLocation, message)
+            }
+        }
+    }
+}
+
 class AuthenticationException : RuntimeException()
 class AuthorizationException : RuntimeException()
 
@@ -185,3 +281,5 @@ fun CommonAttributeGroupFacade.style(builder: CSSBuilder.() -> Unit) {
 suspend inline fun ApplicationCall.respondCss(builder: CSSBuilder.() -> Unit) {
     this.respondText(CSSBuilder().apply(builder).toString(), ContentType.Text.CSS)
 }
+
+data class ChatSession(val id: String)
